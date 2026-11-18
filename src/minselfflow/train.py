@@ -2,6 +2,7 @@
 
     # 4 GPUs
     torchrun --nproc_per_node=4 -m minselfflow.train --out_dir runs/flow --steps 100000
+    torchrun --nproc_per_node=4 -m minselfflow.train --method selfflow --out_dir runs/selfflow --steps 100000
     # 1 GPU / CPU
     python -m minselfflow.train --steps 1000
 
@@ -28,6 +29,7 @@ from torchvision.utils import save_image
 from minselfflow.data import load_cifar10, to_image_range, to_model_range
 from minselfflow.flow import euler_sample, flow_loss
 from minselfflow.model import DiT, DiTConfig, patchify, unpatchify
+from minselfflow.selfflow import SelfFlowConfig, Student, selfflow_loss
 from minselfflow.utils.log import logger
 
 
@@ -35,7 +37,7 @@ from minselfflow.utils.log import logger
 class TrainConfig:
     """Training hyperparameters; every field is also a --flag on the command line."""
 
-    method: Literal["flow"] = "flow"
+    method: Literal["flow", "dual", "selfflow"] = "flow"  # dual = dual-timestep noising only, no teacher
     out_dir: str = "runs/flow"
     data_dir: str = "data"
     steps: int = 100_000
@@ -53,6 +55,8 @@ class TrainConfig:
     sample_every: int = 5000
     ckpt_every: int = 10_000
     seed: int = 0
+    mask_ratio: float = 0.25  # dual / selfflow: fraction of tokens noised with the second timestep
+    gamma: float = 0.8  # selfflow: weight of the representation loss
     compile: bool = True
 
 
@@ -148,6 +152,7 @@ def train(cfg: TrainConfig, images: Tensor, labels: Tensor, d: Dist) -> None:
         d (Dist): distributed context.
     """
     assert cfg.batch_size % d.world == 0, (cfg.batch_size, d.world)
+    assert cfg.method in ("flow", "dual", "selfflow"), cfg.method
     torch.manual_seed(cfg.seed + d.rank)  # different data/noise per rank
     torch.backends.cuda.matmul.allow_tf32 = True
     out = Path(cfg.out_dir)
@@ -156,22 +161,27 @@ def train(cfg: TrainConfig, images: Tensor, labels: Tensor, d: Dist) -> None:
     num_tokens = (images.shape[-1] // cfg.patch) ** 2
     mcfg = DiTConfig(in_dim=cfg.patch**2 * 3, num_tokens=num_tokens, dim=cfg.dim, depth=cfg.depth, heads=cfg.heads)
     model = DiT(mcfg).to(d.device)
-    ema = copy.deepcopy(model).requires_grad_(False)
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=0.0)
+    ema = copy.deepcopy(model).requires_grad_(False)  # sampling model, and the Self-Flow teacher
+    sf = SelfFlowConfig(mask_ratio=cfg.mask_ratio, gamma=cfg.gamma)
+    student_layer, teacher_layer = sf.layers(cfg.depth) if cfg.method == "selfflow" else (0, 0)
+    # what the optimizer trains: the DiT, plus the projection head for selfflow
+    trainable: nn.Module = Student(model, student_layer).to(d.device) if cfg.method == "selfflow" else model
+    opt = torch.optim.AdamW(trainable.parameters(), lr=cfg.lr, weight_decay=0.0)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / cfg.warmup))
 
     start = 0
     ckpt_path = out / "ckpt.pt"
     if ckpt_path.exists():
         ckpt = torch.load(ckpt_path, map_location=d.device)
-        model.load_state_dict(ckpt["model"])
+        trainable.load_state_dict(ckpt["trainable"])
         ema.load_state_dict(ckpt["ema"])
         opt.load_state_dict(ckpt["opt"])
         sched.load_state_dict(ckpt["sched"])
         start = ckpt["step"]
         logger.info("resumed from %s at step %d", ckpt_path, start)
 
-    net: nn.Module = torch.compile(model) if cfg.compile else model  # ty: ignore[invalid-assignment]
+    net: nn.Module = torch.compile(trainable) if cfg.compile else trainable  # ty: ignore[invalid-assignment]
+    teacher = torch.compile(ema.forward_features) if cfg.compile else ema.forward_features
     if d.world > 1:
         net = DistributedDataParallel(net, device_ids=[d.device.index])
     images, labels = images.to(d.device), labels.to(d.device)
@@ -179,8 +189,14 @@ def train(cfg: TrainConfig, images: Tensor, labels: Tensor, d: Dist) -> None:
 
     if d.main:
         logger.info(
-            "params %.1fM | %d GPUs x %d per GPU", sum(p.numel() for p in model.parameters()) / 1e6, d.world, per_rank
+            "%s | params %.1fM | %d GPUs x %d per GPU",
+            cfg.method,
+            sum(p.numel() for p in trainable.parameters()) / 1e6,
+            d.world,
+            per_rank,
         )
+        if cfg.method == "selfflow":
+            logger.info("student block %d -> teacher block %d of %d", student_layer, teacher_layer, cfg.depth)
         (out / "config.json").write_text(json.dumps(asdict(cfg), indent=2))
 
     t0, metrics = time.time(), (out / "metrics.jsonl").open("a")
@@ -190,31 +206,42 @@ def train(cfg: TrainConfig, images: Tensor, labels: Tensor, d: Dist) -> None:
             match cfg.method:
                 case "flow":
                     loss = flow_loss(net, x0, y)
+                    parts = {"gen": loss.detach()}
+                case "dual":
+                    loss = flow_loss(net, x0, y, cfg.mask_ratio)
+                    parts = {"gen": loss.detach()}
+                case "selfflow":
+                    loss, parts = selfflow_loss(net, teacher, x0, y, sf, teacher_layer)
         opt.zero_grad(set_to_none=True)
         loss.backward()
-        grad_norm = nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+        grad_norm = nn.utils.clip_grad_norm_(trainable.parameters(), cfg.grad_clip)
         opt.step()
         sched.step()
         update_ema(ema, model, ema_decay_at(step, cfg.ema_decay))
 
         if step % cfg.log_every == 0:
-            stats = torch.stack([loss.detach().float(), grad_norm.float()])
+            named = {"loss": loss.detach(), **parts, "grad_norm": grad_norm}
+            stats = torch.stack([v.float() for v in named.values()])
             if d.world > 1:
                 dist.all_reduce(stats, op=dist.ReduceOp.AVG)
             elapsed, t0 = time.time() - t0, time.time()
             img_per_s = cfg.log_every * cfg.batch_size / elapsed
             if d.main:
-                row = {"step": step, "loss": stats[0].item(), "grad_norm": stats[1].item(), "img_per_s": img_per_s}
+                row = {"step": step, **dict(zip(named, stats.tolist())), "img_per_s": img_per_s}
                 metrics.write(json.dumps(row) + "\n")
                 metrics.flush()
                 logger.info(
-                    "step %d | loss %.4f | grad %.3f | %.0f img/s", step, row["loss"], row["grad_norm"], img_per_s
+                    "step %d | %s | %.0f img/s",
+                    step,
+                    " | ".join("%s %.4f" % (k, row[k]) for k in named),
+                    img_per_s,
                 )
         if d.main and (step % cfg.sample_every == 0 or step == cfg.steps):
             save_samples(ema, cfg, step, d.device)
         if d.main and (step % cfg.ckpt_every == 0 or step == cfg.steps):
             state = {
                 "model": model.state_dict(),
+                "trainable": trainable.state_dict(),
                 "ema": ema.state_dict(),
                 "opt": opt.state_dict(),
                 "sched": sched.state_dict(),

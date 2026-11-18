@@ -17,8 +17,10 @@ make rename NEW=x   # (template) rename package
 ## Project Layout
 
 - `src/minselfflow/` — Main package
-  - `flow.py` — flow matching: per-token noising, loss, Euler sampler
+  - `flow.py` — flow matching: per-token noising, dual-timestep sampling, loss, Euler sampler
   - `model.py` — DiT with per-token timestep conditioning, patchify/unpatchify
+  - `selfflow.py` — Self-Flow: student w/ projection head, EMA-teacher representation loss
+  - `train.py` — DDP training (`--method flow|dual|selfflow`), outputs in `runs/<name>/`
   - `data.py` — CIFAR-10 from Hugging Face, cached as uint8 tensors in `data/`
 - `tests/` — Pytest test files
 - `scripts/` — Standalone scripts (`toy_2d.py`: 2D flow matching demo)

@@ -32,3 +32,14 @@ def test_flow_loss_zero_for_oracle_on_point_mass():
         return (x - c) / tau[..., None]
 
     assert flow_loss(oracle, x0, torch.zeros(16)) < 1e-8
+
+
+def test_dual_tau_two_levels_per_image():
+    from minselfflow.flow import sample_dual_tau
+
+    tau, mask = sample_dual_tau(64, 256, 0.25)
+    for row, m in zip(tau, mask):
+        assert torch.all(row[m] == row[m][0]) and torch.all(row[~m] == row[~m][0])  # s on mask, t elsewhere
+    assert 0.2 < mask.float().mean() < 0.3
+    tau0, mask0 = sample_dual_tau(8, 16, 0.0)
+    assert not mask0.any() and torch.all(tau0 == tau0[:, :1])  # mask_ratio 0 = vanilla

@@ -62,20 +62,45 @@ def sample_t(batch_size: int, device: torch.device | str = "cpu") -> Tensor:
     return torch.sigmoid(torch.randn(batch_size, device=device))
 
 
-def flow_loss(model: VelocityModel, x0: Tensor, y: Tensor) -> Tensor:
-    """Vanilla flow matching loss: same t for every token of an example.
+def sample_dual_tau(
+    batch_size: int, num_tokens: int, mask_ratio: float, device: torch.device | str = "cpu"
+) -> tuple[Tensor, Tensor]:
+    """Dual-Timestep Scheduling (Self-Flow, Sec. 3.3).
+
+    Draw two timesteps t, s ~ p(t) per example; each token independently joins the mask M with
+    probability mask_ratio and gets s, the rest get t. Every token's marginal is still p(t), but
+    within an image some tokens are cleaner than others. mask_ratio=0 gives vanilla flow matching.
+
+    Args:
+        batch_size (int): B.
+        num_tokens (int): N.
+        mask_ratio (float): R_M in [0, 0.5], fraction of tokens that get s.
+
+    Returns:
+        tuple[Tensor, Tensor]: tau (B, N) float in (0, 1), and mask (B, N) bool, True = token got s.
+    """
+    assert 0.0 <= mask_ratio <= 0.5, mask_ratio
+    t = sample_t(batch_size, device)[:, None]
+    s = sample_t(batch_size, device)[:, None]
+    mask = torch.rand(batch_size, num_tokens, device=device) < mask_ratio
+    return torch.where(mask, s, t), mask
+
+
+def flow_loss(model: VelocityModel, x0: Tensor, y: Tensor, mask_ratio: float = 0.0) -> Tensor:
+    """Flow matching loss. mask_ratio=0: vanilla (same t for every token); >0: dual-timestep noising.
 
     Args:
         model (VelocityModel): velocity predictor.
         x0 (Tensor): clean tokens, shape (B, N, C).
         y (Tensor): class labels, shape (B,).
+        mask_ratio (float): fraction of tokens noised with the second timestep s.
 
     Returns:
         Tensor: scalar MSE between predicted and true velocity.
     """
     B, N, _ = x0.shape
     x1 = torch.randn_like(x0)
-    tau = sample_t(B, x0.device)[:, None].expand(B, N)  # (B,) -> (B, N), all tokens equal
+    tau, _ = sample_dual_tau(B, N, mask_ratio, x0.device)
     x_tau = add_noise(x0, x1, tau)
     v_pred = model(x_tau, tau, y)
     return F.mse_loss(v_pred, x1 - x0)
