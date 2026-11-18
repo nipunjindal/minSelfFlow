@@ -16,9 +16,15 @@ make rename NEW=x   # (template) rename package
 
 ## Project Layout
 
-- `src/minselfflow/` — Main package (use `make rename` to change)
+- `src/minselfflow/` — Main package
+  - `flow.py` — flow matching: per-token noising, loss, Euler sampler
+  - `model.py` — DiT with per-token timestep conditioning, patchify/unpatchify
+  - `data.py` — CIFAR-10 from Hugging Face, cached as uint8 tensors in `data/`
 - `tests/` — Pytest test files
-- `scripts/` — Standalone scripts
+- `scripts/` — Standalone scripts (`toy_2d.py`: 2D flow matching demo)
+- `notebooks/minselfflow.ipynb` — step-by-step learning notebook (run from `notebooks/`)
+
+Conventions: tokens are `(B, N, C)`, per-token timesteps `tau` are `(B, N)`; t=0 is data, t=1 is noise.
 
 ## Tooling
 

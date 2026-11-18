@@ -15,7 +15,8 @@ dependencies = [
   "torch",
   "torchvision",
   "matplotlib",
-  "numpy"
+  "numpy",
+  "pyarrow>=25.0.1",
 ]
 
 [project.optional-dependencies]
