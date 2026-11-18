@@ -2,7 +2,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from python_base.utils.log import logger
+from minselfflow.utils.log import logger
 
 
 @contextmanager

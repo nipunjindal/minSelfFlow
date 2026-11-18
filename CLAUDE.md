@@ -1,6 +1,6 @@
-# Python Base - Template Project
+# minSelfFlow
 
-Starter Python project pre-configured with uv, ruff, ty, and pre-commit.
+Minimal implementation of the Self-Flow paper (arXiv 2603.06507), built on a uv/ruff/ty/pre-commit template.
 
 ## Quick Reference
 
@@ -11,12 +11,12 @@ make lint           # Format + lint + type-check (ruff, shfmt, toml-sort, ty)
 make type-check     # ty check only
 make pre-commit-run # Run all pre-commit hooks
 make clean          # Remove .venv and caches
-make rename NEW=x   # Rename package from python_base to x
+make rename NEW=x   # (template) rename package
 ```
 
 ## Project Layout
 
-- `src/python_base/` — Main package (use `make rename` to change)
+- `src/minselfflow/` — Main package (use `make rename` to change)
 - `tests/` — Pytest test files
 - `scripts/` — Standalone scripts
 
@@ -35,7 +35,7 @@ Agent definitions live in `.claude/agents/` (orchestrator, implementer, reviewer
 ## Conventions
 
 - Run `make lint` before committing — pre-commit hooks enforce this
-- All source goes under `src/python_base/`; tests mirror the source structure in `tests/`
+- All source goes under `src/minselfflow/`; tests mirror the source structure in `tests/`
 - Python >=3.10 required
 - Keep this file updated as the project evolves — new deps, conventions, or structural changes should be reflected here
 

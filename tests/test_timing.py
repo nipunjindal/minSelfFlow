@@ -1,6 +1,6 @@
 import time
 
-from python_base.utils.timing import segment_timer
+from minselfflow.utils.timing import segment_timer
 
 
 def test_segment_timer():

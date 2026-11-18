@@ -3,12 +3,12 @@ requires = ["uv_build>=0.8.2,<0.9.0"]
 build-backend = "uv_build"
 
 [project]
-name = "python_base"
+name = "minselfflow"
 version = "0.0.1"
-description = "Template Python project pre-configured for uv dependency management."
+description = "Minimal, hackable implementation of Self-Flow (self-supervised flow matching)."
 requires-python = ">=3.10"
 readme = "README.md"
-keywords = ["template", "uv", "python"]
+keywords = ["flow-matching", "diffusion", "self-supervised", "representation-learning", "pytorch"]
 authors = [{name = "Nipun Jindal", email = "njindal@adobe.com"}]
 # Runtime dependencies
 dependencies = [

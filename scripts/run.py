@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import sys
 
-from python_base.utils.log import logger
-from python_base.utils.timing import segment_timer
+from minselfflow.utils.log import logger
+from minselfflow.utils.timing import segment_timer
 
 
 def main() -> int:
-    logger.info("Starting python_base application")
+    logger.info("Starting minselfflow application")
     logger.debug("Debug logging is enabled")
 
     try:
@@ -14,7 +14,7 @@ def main() -> int:
         with segment_timer("Example work execution"):
             logger.info("Performing some example work")
             # Simulate some work
-            result = "Hello from python_base!"
+            result = "Hello from minselfflow!"
             logger.debug("Work completed with result: %s", result)
 
         logger.info("Application completed successfully: %s", result)
