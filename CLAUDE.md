@@ -22,8 +22,10 @@ make rename NEW=x   # (template) rename package
   - `selfflow.py` — Self-Flow: student w/ projection head, EMA-teacher representation loss
   - `train.py` — DDP training (`--method flow|dual|selfflow`), outputs in `runs/<name>/`
   - `data.py` — CIFAR-10 from Hugging Face, cached as uint8 tensors in `data/`
+  - `evaluate.py` — per-checkpoint FID-10k, vanilla val loss, per-block linear probe → `runs/<name>/eval.jsonl`
 - `tests/` — Pytest test files
-- `scripts/` — Standalone scripts (`toy_2d.py`: 2D flow matching demo)
+- `scripts/` — Standalone scripts (`toy_2d.py`: 2D flow matching demo, `plot_runs.py`: curves/eval/sample plots → `assets/`)
+- `assets/` — plots referenced from the README
 - `notebooks/minselfflow.ipynb` — step-by-step learning notebook (run from `notebooks/`)
 
 Conventions: tokens are `(B, N, C)`, per-token timesteps `tau` are `(B, N)`; t=0 is data, t=1 is noise.
