@@ -247,6 +247,8 @@ def train(cfg: TrainConfig, images: Tensor, labels: Tensor, d: Dist) -> None:
                 "sched": sched.state_dict(),
             }
             torch.save({**state, "step": step, "cfg": asdict(cfg)}, ckpt_path)
+            # small EMA-only snapshots so FID / linear probes can be tracked over training
+            torch.save({"ema": ema.state_dict(), "step": step, "cfg": asdict(cfg)}, out / ("ema_%06d.pt" % step))
             logger.info("saved %s", ckpt_path)
     metrics.close()
 
